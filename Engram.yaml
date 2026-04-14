@@ -1,0 +1,255 @@
+apiVersion: catalog.bubustack.io/v1alpha1
+kind: EngramTemplate
+metadata:
+  name: openai-stt
+  annotations:
+    registry.bubustack.io/maturity: experimental
+spec:
+  version: 0.1.0
+  description: "Speech-to-text streaming engram using OpenAI Whisper and GPT-4o transcription models."
+  image: ghcr.io/bubustack/openai-stt-engram:0.1.0
+  supportedModes:
+    - deployment
+    - job
+  configSchema:
+    type: object
+    properties:
+      model:
+        type: string
+        default: gpt-4o-mini-transcribe
+        description: Preferred OpenAI transcription model ID.
+      responseFormat:
+        type: string
+        enum: [auto, json, text, srt, verbose_json, vtt]
+        default: auto
+        description: Response format; auto selects a supported default for the chosen model.
+      timestampGranularity:
+        type: string
+        enum: [none, word, segment, "word,segment"]
+        default: none
+        description: Optional timestamps to request when verbose_json is used.
+      includeLogProbs:
+        type: boolean
+        default: false
+        description: Include token-level log probabilities (supported on GPT-4o transcription models).
+      diarize:
+        type: boolean
+        default: false
+        description: Enable speaker diarization when supported (e.g. gpt-4o-transcribe-diarize).
+      prompt:
+        type: string
+        description: Optional primer text to steer transcription output.
+      temperature:
+        type: number
+        minimum: 0
+        maximum: 1
+        default: 0
+        description: Sampling temperature for transcription (0 is deterministic).
+      language:
+        type: string
+        default: en
+        description: Default language hint (BCP-47) to improve accuracy and latency.
+      include:
+        type: array
+        description: Values for OpenAI's include parameter (currently only "logprobs").
+        items:
+          type: string
+      chunking:
+        type: object
+        description: Server-side voice-activity-detection settings for chunking long audio.
+        properties:
+          mode:
+            type: string
+            enum: [auto, off, server_vad]
+            default: auto
+            description: auto lets OpenAI choose, server_vad enables manual tuning, off disables hints.
+          prefixPaddingMs:
+            type: integer
+            description: Milliseconds of audio to prepend before detected speech when using server_vad.
+          silenceDurationMs:
+            type: integer
+            description: Silence duration threshold (ms) before ending a chunk when using server_vad.
+          threshold:
+            type: number
+            minimum: 0
+            maximum: 1
+            description: Sensitivity for server_vad chunking.
+      task:
+        type: string
+        enum: [transcribe, translate]
+        default: transcribe
+        description: Default operation; choose translate to always run the audio translation endpoint.
+      stream:
+        type: boolean
+        default: false
+        description: Enable OpenAI's SSE streaming mode for transcriptions by default.
+      ignoreIdentities:
+        type: array
+        description: Drop packets whose participant identity matches any entry (supports `*` and `prefix*`).
+        items:
+          type: string
+      allowIdentities:
+        type: array
+        description: Optional allowlist; when provided only matching participant identities are transcribed.
+        items:
+          type: string
+  inputSchema:
+    type: object
+    properties:
+      audio:
+        type: object
+        description: One of `data` or `storage` must be provided.
+        properties:
+          encoding:
+            type: string
+            description: PCM / opus / base64 encoded audio type.
+          sampleRate:
+            anyOf:
+              - type: integer
+              - type: string
+          channels:
+            anyOf:
+              - type: integer
+              - type: string
+          data:
+            type: string
+            description: Base64-encoded audio payload.
+          storage:
+            type: object
+            description: Reference to audio buffered in shared storage.
+            properties:
+              path:
+                type: string
+              contentType:
+                type: string
+              sizeBytes:
+                type: integer
+      responseFormat:
+        type: string
+        enum: [auto, json, text, srt, verbose_json, vtt]
+        description: Optional override for the response format.
+      format:
+        type: string
+        enum: [json, text, srt, verbose_json, vtt]
+        description: Deprecated alias for responseFormat.
+      language:
+        type: string
+        description: Optional BCP-47 language hint. Defaults to the Engram's config language, or none if unset.
+      timestampGranularity:
+        type: string
+        enum: [none, word, segment, "word,segment"]
+        description: Request-specific timestamp override.
+      includeLogProbs:
+        type: boolean
+        description: Request-specific token log probability toggle.
+      diarize:
+        type: boolean
+        description: Request-specific diarization toggle.
+      prompt:
+        type: string
+        description: Optional primer text to steer transcription output.
+      temperature:
+        type: number
+        description: Request-specific sampling temperature.
+      include:
+        type: array
+        description: Request-specific include overrides (e.g. ["logprobs"]).
+        items:
+          type: string
+      chunking:
+        type: object
+        description: Request-specific chunking override.
+        properties:
+          mode:
+            type: string
+            enum: [auto, off, server_vad]
+          prefixPaddingMs:
+            type: integer
+          silenceDurationMs:
+            type: integer
+          threshold:
+            type: number
+      task:
+        type: string
+        enum: [transcribe, translate]
+        description: Per-request override to run translation instead of transcription.
+      stream:
+        type: boolean
+        description: Enable/disable SSE streaming for this request; inherits from config when omitted.
+  outputSchema:
+    type: object
+    properties:
+      text:
+        type: string
+        description: Transcript text.
+      words:
+        type: array
+        description: Word timestamps when requested.
+        items:
+          type: object
+          properties:
+            word: { type: string }
+            start: { type: number }
+            end: { type: number }
+      segments:
+        type: array
+        description: Segment timestamps when requested.
+        items:
+          type: object
+          properties:
+            text: { type: string }
+            start: { type: number }
+            end: { type: number }
+      logprobs:
+        type: array
+        description: Token-level log probabilities when requested.
+        items:
+          type: object
+      speakers:
+        type: array
+        description: Speaker summaries when diarization is enabled.
+        items:
+          type: object
+      speakerSegments:
+        type: array
+        description: Segment timeline attributed to speakers.
+        items:
+          type: object
+      speakerLabels:
+        type: array
+        description: Speaker labels when diarization is enabled.
+        items:
+          type: object
+      model:
+        type: string
+      responseFormat:
+        type: string
+      language:
+        type: string
+      timestampGranularity:
+        type: string
+      task:
+        type: string
+        enum: [transcribe, translate]
+        description: Indicates whether the request was transcribed or translated.
+      usage:
+        type: object
+  secretSchema:
+    openai:
+      required: false
+      description: "OpenAI API credentials. Provide API_KEY plus optional ORG_ID/PROJECT_ID/BASE_URL."
+      mountType: env
+      envPrefix: OPENAI_
+    azure:
+      required: false
+      description: "Azure OpenAI credentials (ENDPOINT, API_KEY, DEPLOYMENT, API_VERSION)."
+      mountType: env
+      envPrefix: AZURE_
+      expectedKeys: ["ENDPOINT", "API_KEY", "DEPLOYMENT", "API_VERSION"]
+  execution:
+    service:
+      ports:
+        - name: grpc
+          protocol: TCP
+          port: 50051
+          targetPort: 50051
