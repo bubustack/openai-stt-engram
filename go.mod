@@ -6,7 +6,7 @@ require (
 	github.com/bubustack/bobrapet v0.1.6
 	github.com/bubustack/bubu-sdk-go v0.1.2
 	github.com/bubustack/tractatus v0.1.2
-	github.com/openai/openai-go/v2 v2.7.0
+	github.com/openai/openai-go/v2 v2.7.1
 )
 
 require (
