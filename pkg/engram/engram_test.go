@@ -3,6 +3,8 @@ package engram
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -91,6 +93,85 @@ func TestTranscriptFanoutObserverEmitMirrorsPayloadToBinary(t *testing.T) {
 	}
 }
 
+func TestTranscriptFanoutObserverPayloadOmitsInternalConfig(t *testing.T) {
+	out := make(chan sdkengram.StreamMessage, 1)
+	observer := &transcriptFanoutObserver{
+		ctx:            context.Background(),
+		baseMetadata:   map[string]string{"storyRun": "sr-1"},
+		out:            out,
+		provider:       "openai",
+		model:          "gpt-4o-transcribe",
+		task:           "transcribe",
+		responseFormat: responseFormatJSON,
+	}
+
+	if err := observer.OnTextDone("hello", nil, nil); err != nil {
+		t.Fatalf("OnTextDone returned error: %v", err)
+	}
+
+	select {
+	case msg := <-out:
+		var payload map[string]any
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			t.Fatalf("failed to decode payload: %v", err)
+		}
+		for _, key := range []string{"model", "task", "responseFormat", "stream"} {
+			if _, ok := payload[key]; ok {
+				t.Fatalf("expected payload to omit %q, got %#v", key, payload)
+			}
+		}
+		if msg.Metadata["model"] != "gpt-4o-transcribe" {
+			t.Fatalf("expected model metadata, got %#v", msg.Metadata)
+		}
+	default:
+		t.Fatal("expected emitted transcript message")
+	}
+}
+
+func TestEmitTranscriptionResultPayloadOmitsInternalConfig(t *testing.T) {
+	out := make(chan sdkengram.StreamMessage, 1)
+	engine := &OpenAISTT{cfg: sttcfg.Normalize(sttcfg.Config{})}
+	msg := sdkengram.NewInboundMessage(sdkengram.StreamMessage{})
+	result := map[string]any{
+		outputFieldText:  "hello",
+		"userPrompt":     "hello",
+		"provider":       "openai",
+		"model":          "gpt-4o-mini-transcribe",
+		"task":           "transcribe",
+		"responseFormat": responseFormatJSON,
+		"stream":         false,
+		"type":           "speech.transcript.v1",
+	}
+
+	if err := engine.emitTranscriptionResult(context.Background(), testLogger(t), msg, out, result); err != nil {
+		t.Fatalf("emitTranscriptionResult returned error: %v", err)
+	}
+
+	select {
+	case emitted := <-out:
+		var payload map[string]any
+		if err := json.Unmarshal(emitted.Payload, &payload); err != nil {
+			t.Fatalf("failed to decode payload: %v", err)
+		}
+		for _, key := range []string{"model", "task", "responseFormat", "stream"} {
+			if _, ok := payload[key]; ok {
+				t.Fatalf("expected payload to omit %q, got %#v", key, payload)
+			}
+		}
+		if payload[outputFieldText] != "hello" || payload["userPrompt"] != "hello" {
+			t.Fatalf("expected transcript text fields, got %#v", payload)
+		}
+		if !bytes.Equal(emitted.Payload, emitted.Binary.Payload) || !bytes.Equal(emitted.Payload, emitted.Inputs) {
+			t.Fatalf("expected payload, binary, and inputs to mirror sanitized output")
+		}
+		if emitted.Metadata["model"] != "gpt-4o-mini-transcribe" {
+			t.Fatalf("expected model metadata, got %#v", emitted.Metadata)
+		}
+	default:
+		t.Fatal("expected emitted transcript result")
+	}
+}
+
 func TestStreamJSONBytesPrefersInputsThenPayloadThenBinary(t *testing.T) {
 	msg := sdkengram.NewInboundMessage(sdkengram.StreamMessage{
 		Inputs:  []byte(`{"task":"transcribe"}`),
@@ -156,4 +237,9 @@ func TestStreamContinuesAfterMalformedPacket(t *testing.T) {
 	if err := engine.Stream(ctx, in, out); err != nil {
 		t.Fatalf("expected malformed packet to be skipped, got err=%v", err)
 	}
+}
+
+func testLogger(t *testing.T) *slog.Logger {
+	t.Helper()
+	return slog.Default()
 }
