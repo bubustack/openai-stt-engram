@@ -417,7 +417,7 @@ func (e *OpenAISTT) emitTranscriptionResult(
 		return nil
 	}
 
-	payloadBytes, err := json.Marshal(result)
+	payloadBytes, err := json.Marshal(transcriptPayloadForDownstream(result))
 	if err != nil {
 		return fmt.Errorf("marshal stt result: %w", err)
 	}
@@ -433,6 +433,19 @@ func (e *OpenAISTT) emitTranscriptionResult(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func transcriptPayloadForDownstream(result map[string]any) map[string]any {
+	payload := make(map[string]any, len(result))
+	for key, value := range result {
+		switch key {
+		case "model", "task", "responseFormat", "stream":
+			continue
+		default:
+			payload[key] = value
+		}
+	}
+	return payload
 }
 
 func streamJSONBytes(msg sdkengram.InboundMessage) []byte {
@@ -1323,9 +1336,7 @@ func (o *transcriptFanoutObserver) OnTextDelta(delta string) error {
 		"delta":       delta,
 		"sequence":    o.sequence,
 		"language":    o.language,
-		"task":        o.task,
 		"type":        transport.StreamTypeSpeechTranscriptDelta,
-		"model":       o.model,
 		"provider":    o.provider,
 		"granularity": o.timestampGranularity,
 	}
@@ -1345,9 +1356,7 @@ func (o *transcriptFanoutObserver) OnTextDone(
 		outputFieldText: final,
 		"sequence":      o.sequence,
 		"language":      o.language,
-		"task":          o.task,
 		"type":          transport.StreamTypeSpeechTranscriptDone,
-		"model":         o.model,
 		"provider":      o.provider,
 		"granularity":   o.timestampGranularity,
 	}
